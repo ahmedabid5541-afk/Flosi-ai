@@ -4,6 +4,7 @@ import plotly.express as px
 from pathlib import Path
 from datetime import date
 from finance import validate,summary,budget,savings_plan,guidance
+from agent import ask_agent
 
 st.set_page_config(page_title='فلوسي AI',page_icon='💰',layout='wide')
 st.markdown('''<style>html,body,[class*="css"]{font-family:Tahoma,Arial,sans-serif} .block-container{direction:rtl;text-align:right} h1,h2,h3,p{direction:rtl;text-align:right}</style>''',unsafe_allow_html=True)
@@ -68,12 +69,36 @@ with tabs[3]:
     st.metric('المطلوب ادخاره شهرياً',f'{monthly:,.2f} ر.ق')
     if monthly>max(0,s['balance']): st.warning('المبلغ المطلوب يتجاوز الفائض الحالي. جرّب تمديد المدة أو خفض الهدف.')
 with tabs[4]:
-    st.write('مساعد إرشادي قائم على بياناتك وقواعد واضحة؛ لا يستخدم نموذج محادثة خارجي في هذه النسخة.')
-    q=st.selectbox('اختر سؤالك',['كيف أتحكم بمصروفاتي؟','هل أنا ضمن الميزانية؟','كيف أبدأ الادخار؟'])
-    limit2=st.number_input('الميزانية للمساعد',min_value=0.0,value=1500.0,key='assistant_budget')
-    if q=='كيف أبدأ الادخار?': st.write('حدد هدفاً ومهلة في تبويب الادخار.')
-    elif q=='كيف أبدأ الادخار؟': st.write('حدد هدفاً ومهلة في تبويب الادخار، وراجع فائض دخلك أولاً.')
-    else: st.write(guidance(df,limit2))
+    st.subheader('🤖 وكيل فلوسي AI الذكي')
+    st.caption('وكيل يستخدم نموذج ذكاء اصطناعي وأدوات لحساب الملخص والميزانية والادخار. لا يغيّر بياناتك تلقائيًا.')
+    try:
+        api_key=st.secrets.get('OPENAI_API_KEY','')
+    except Exception:
+        api_key=''
+    if not api_key:
+        st.warning('الوكيل غير مفعّل بعد. أضف OPENAI_API_KEY في Streamlit Cloud → App settings → Secrets. بقية التطبيق تعمل بشكل طبيعي.')
+    if 'flosi_chat' not in st.session_state:
+        st.session_state.flosi_chat=[]
+    if st.button('مسح المحادثة',key='clear_chat'):
+        st.session_state.flosi_chat=[]
+        st.rerun()
+    for message in st.session_state.flosi_chat:
+        with st.chat_message(message['role']):
+            st.write(message['content'])
+    question=st.chat_input('مثلاً: ما أكثر فئة أصرف عليها؟ وكيف أوفر 500 ريال؟',disabled=not bool(api_key))
+    if question:
+        previous=list(st.session_state.flosi_chat)
+        st.session_state.flosi_chat.append({'role':'user','content':question})
+        with st.chat_message('user'):
+            st.write(question)
+        with st.chat_message('assistant'):
+            with st.spinner('أحلل البيانات...'):
+                try:
+                    answer=ask_agent(question,df,api_key,previous)
+                except Exception:
+                    answer='تعذّر الاتصال بالوكيل الآن. تحقق من إعدادات API والرصيد والاتصال، ثم حاول مرة أخرى.'
+                st.write(answer)
+        st.session_state.flosi_chat.append({'role':'assistant','content':answer})
 with tabs[5]:
     st.dataframe(df,use_container_width=True,hide_index=True)
     st.download_button('تنزيل البيانات الحالية CSV',df.to_csv(index=False).encode('utf-8-sig'),'Flosi_AI_Export.csv','text/csv')
